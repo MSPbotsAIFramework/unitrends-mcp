@@ -1,0 +1,20 @@
+# Local debugging only. Credentials are never configured here: send the Unitrends
+# headers (X-Unitrends-Base-URL, X-Unitrends-Username, X-Unitrends-Password) on each request, exactly as the gateway does.
+services:
+  unitrends-mcp:
+    build:
+      context: .
+      target: production
+    image: unitrends-mcp:dev
+    ports:
+      - "8080:8080"
+    environment:
+      - MCP_HTTP_PORT=8080
+      - MCP_HTTP_HOST=0.0.0.0
+      - LOG_LEVEL=INFO
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
