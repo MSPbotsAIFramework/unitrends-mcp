@@ -133,6 +133,9 @@ uv run pytest
   `unitrends_queue_restore` returns a preview unless called with `confirm=true`; the tool
   description tells the agent to set it only after the user approves that exact backup and
   target. It is the only write tool and is annotated destructive.
+- **Result size exception (SOP 2.5).** `unitrends_list_job_history` and `unitrends_list_alerts`
+  have no paging in the API, so they keep a maximum of 1000 (default 50); results are still cut
+  to 20,000 characters with a truncation notice.
 - **Date ranges** default to the last 7 days instead of prompting; job history honours the
   requested range.
 

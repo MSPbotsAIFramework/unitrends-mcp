@@ -56,14 +56,14 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
         until: Until = None,
         applianceId: OptionalApplianceId = None,
         type: JobTypeFilter = None,
-        limit: Annotated[int | None, Field(description="Most recent jobs to return (1-1000, default 200).", ge=1, le=1000)] = None,
+        limit: Annotated[int | None, Field(description="Most recent jobs to return (1-1000, default 50).", ge=1, le=1000)] = None,
     ) -> str:
         """List finished jobs, newest first, with result, size, duration and asset (default: last 7 days)."""
 
         async def action(client: UnitrendsClient) -> dict:
             start, end = date_window(since, until)
             sid = numeric_id(applianceId, "applianceId") if applianceId else None
-            size = limit or 200
+            size = limit or 50
             params = compact(
                 {
                     "sid": sid,

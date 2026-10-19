@@ -46,14 +46,14 @@ def register(mcp: FastMCP, client_factory: ClientFactory) -> None:
     async def unitrends_list_alerts(
         applianceId: OptionalApplianceId = None,
         severity: Annotated[Literal["notice", "warning", "error"] | None, Field(description="Only this severity.")] = None,
-        limit: Annotated[int | None, Field(description="Most recent alerts to return (default 100).", ge=1, le=1000)] = None,
+        limit: Annotated[int | None, Field(description="Most recent alerts to return (1-1000, default 50).", ge=1, le=1000)] = None,
     ) -> str:
         """List open alerts, newest first: message, severity, source and when it was raised or updated."""
 
         async def action(client: UnitrendsClient) -> dict:
             sid = numeric_id(applianceId, "applianceId") if applianceId else None
             path = f"alerts/open/{severity}" if severity else "alerts/open"
-            payload = await client.get(path, compact({"sid": sid, "max_items": limit or 100}))
+            payload = await client.get(path, compact({"sid": sid, "max_items": limit or 50}))
             items = rows(payload, "alerts", "data")
             more = payload.get("more") if isinstance(payload, dict) else None
             return compact({"alerts": items, "count": len(items), "has_more": more if isinstance(more, bool) else None})
