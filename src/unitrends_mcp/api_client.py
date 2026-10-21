@@ -17,6 +17,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass
+from http.cookiejar import CookieJar, DefaultCookiePolicy
 from typing import Any
 
 import httpx
@@ -38,10 +39,25 @@ _CALL_BUDGET_SECONDS = 100.0
 _shared_clients: dict[bool, httpx.AsyncClient] = {}
 
 
+class _RejectAllCookies(DefaultCookiePolicy):
+    """Never store or send a cookie: the HTTP client is shared by every tenant."""
+
+    def set_ok(self, cookie, request) -> bool:  # noqa: ANN001 - stdlib signature
+        return False
+
+    def return_ok(self, cookie, request) -> bool:  # noqa: ANN001 - stdlib signature
+        return False
+
+
+def _no_cookies() -> CookieJar:
+    # A plain CookieJar: httpx uses it as is (an httpx.Cookies would be copied into a default jar).
+    return CookieJar(policy=_RejectAllCookies())
+
+
 def _get_shared_http_client(verify_tls: bool = True) -> httpx.AsyncClient:
     client = _shared_clients.get(verify_tls)
     if client is None:
-        client = httpx.AsyncClient(timeout=_TIMEOUT, verify=verify_tls)
+        client = httpx.AsyncClient(cookies=_no_cookies(), timeout=_TIMEOUT, verify=verify_tls)
         _shared_clients[verify_tls] = client
     return client
 
