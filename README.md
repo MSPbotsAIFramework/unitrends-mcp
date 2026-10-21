@@ -37,7 +37,10 @@ header. A 401 triggers one fresh login. Values that look like unresolved templat
 are treated as missing.
 
 A request to `/mcp` without the three required headers gets HTTP 401 naming the missing
-ones; a non-https URL or an invalid `X-Unitrends-Verify-TLS` value gets HTTP 400.
+ones. A non-https URL or an invalid `X-Unitrends-Verify-TLS` value does not block the request
+(so `tools/list` works with any values); every tool call then returns an `invalid_argument`
+error naming the header, and nothing is sent to the appliance. An invalid
+`X-Unitrends-Verify-TLS` value never turns TLS verification off.
 
 ## Tools
 

@@ -39,6 +39,9 @@ _FALSE = re.compile(r"^(0|false|no|off)$", re.IGNORECASE)
 _TRUE = re.compile(r"^(1|true|yes|on)$", re.IGNORECASE)
 _API_SUFFIX = re.compile(r"/api/?$", re.IGNORECASE)
 _LOCAL_HOSTS = {"localhost", "127.0.0.1"}
+# Stand-in for a rejected base URL; the .invalid TLD never resolves, and the
+# client refuses every request anyway while header_error is set.
+_UNUSABLE_BASE_URL = "https://base-url.invalid"
 
 # Per-request isolation: the middleware sets these for the duration of one
 # HTTP request and resets them in `finally`. Nothing credential-related is
@@ -103,7 +106,9 @@ class GatewayCredentialsMiddleware:
     """Reads the Unitrends headers on /mcp requests into the request context.
 
     Needs X-Unitrends-Base-URL, X-Unitrends-Username and X-Unitrends-Password;
-    otherwise 401.
+    otherwise 401. A malformed base URL or Verify-TLS value does not block the
+    request (tools/list must work with any values); tools report it instead and
+    never contact the appliance. A malformed Verify-TLS keeps TLS verification on.
     """
 
     def __init__(self, app: ASGIApp):
@@ -135,18 +140,20 @@ class GatewayCredentialsMiddleware:
 
         base_url = normalize_base_url(values[HEADER_BASE_URL] or "")
         verify_raw = header(HEADER_VERIFY_TLS)
+        errors: list[str] = []
         if base_url is None:
-            await self._reject(scope, receive, send, f"{HEADER_BASE_URL} must be an https URL such as https://backup.example.com")
-            return
+            errors.append(f"{HEADER_BASE_URL} must be an https URL such as https://backup.example.com")
+            base_url = _UNUSABLE_BASE_URL
         if verify_raw and not (_TRUE.match(verify_raw) or _FALSE.match(verify_raw)):
-            await self._reject(scope, receive, send, f"{HEADER_VERIFY_TLS} must be true or false")
-            return
+            errors.append(f"{HEADER_VERIFY_TLS} must be true or false")
 
         credentials = UnitrendsCredentials(
             base_url=base_url,
             username=values[HEADER_USERNAME] or "",
             password=values[HEADER_PASSWORD] or "",
+            # Only an explicit false turns verification off; a malformed value keeps it on.
             verify_tls=not (verify_raw and _FALSE.match(verify_raw)),
+            header_error="; ".join(errors) or None,
         )
         request_id = (request.headers.get("x-request-id") or "").strip()[:64] or uuid.uuid4().hex[:12]
         creds_token = _credentials_var.set(credentials)
@@ -156,10 +163,6 @@ class GatewayCredentialsMiddleware:
         finally:
             _credentials_var.reset(creds_token)
             request_id_var.reset(rid_token)
-
-    @staticmethod
-    async def _reject(scope: Scope, receive: Receive, send: Send, message: str) -> None:
-        await JSONResponse({"error": "Invalid header", "message": message}, status_code=400)(scope, receive, send)
 
 
 def create_mcp_server(settings: Settings | None = None) -> FastMCP:

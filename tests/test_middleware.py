@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Credential middleware: 401/400 on bad headers, per-request isolation."""
+"""Credential middleware: 401 on missing headers, deferred format errors, per-request isolation."""
 
 import asyncio
 
@@ -67,10 +67,34 @@ def test_placeholder_values_count_as_missing():
     "extra",
     [{"X-Unitrends-Base-URL": "http://backup.example.com"}, {"X-Unitrends-Verify-TLS": "maybe"}],
 )
-def test_bad_values_return_400(extra):
+def test_bad_values_are_reported_by_tools(extra):
+    call = {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "unitrends_list_appliances", "arguments": {}}}
     with _client() as client:
-        resp = client.post("/mcp", json=LIST_TOOLS, headers=MCP_HEADERS | CREDS | extra)
-    assert resp.status_code == 400
+        resp = client.post("/mcp", json=call, headers=MCP_HEADERS | CREDS | extra)
+    assert resp.status_code == 200
+    assert '\\"invalid_argument\\"' in resp.text
+    assert f"{next(iter(extra))} must be" in resp.text
+
+
+def test_placeholder_headers_still_list_tools():
+    # The admin console refreshes the tool catalog with placeholder header values.
+    headers = {name: "placeholder" for name in list(CREDS) + ["X-Unitrends-Verify-TLS"]}
+    with _client() as client:
+        resp = client.post("/mcp", json=LIST_TOOLS, headers=MCP_HEADERS | headers)
+    assert resp.status_code == 200
+    assert "unitrends_list_appliances" in resp.text
+
+
+def test_bad_values_never_reach_the_appliance():
+    seen = _run_middleware(_raw({"X-Unitrends-Base-URL": "http://elsewhere.example.com", "X-Unitrends-Verify-TLS": "maybe"}))
+    client = seen["client"]
+    assert "https URL" in client.header_error and "true or false" in client.header_error
+    assert "elsewhere" not in client.base_url
+    assert client.verify_tls is True
+    with pytest.raises(Exception, match="https URL"):
+        asyncio.run(client.verify())
+    with pytest.raises(Exception, match="https URL"):
+        asyncio.run(client.get("system"))
 
 
 def test_tools_list_over_http():

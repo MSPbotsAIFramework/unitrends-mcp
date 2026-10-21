@@ -117,6 +117,8 @@ async def run_tool(
     client = client_factory()
     if client is None:
         return NOT_CONFIGURED
+    if client.header_error:
+        return error_envelope("invalid_argument", client.header_error, False)
     started = time.monotonic()
     try:
         result = await action(client)

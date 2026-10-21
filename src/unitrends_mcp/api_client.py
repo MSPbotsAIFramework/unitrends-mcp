@@ -86,6 +86,9 @@ class UnitrendsCredentials:
     username: str
     password: str
     verify_tls: bool = True
+    # Set when a header value is malformed: tools then return invalid_argument
+    # instead of calling Unitrends, while tools/list still works.
+    header_error: str | None = None
 
     def __repr__(self) -> str:  # never leak secrets into logs or tracebacks
         return f"UnitrendsCredentials(base_url={self.base_url!r}, verify_tls={self.verify_tls}, secrets=<redacted>)"
@@ -101,6 +104,7 @@ class UnitrendsClient:
     def __init__(self, credentials: UnitrendsCredentials, http_client: httpx.AsyncClient | None = None):
         self._credentials = credentials
         self._http = http_client
+        self.header_error = credentials.header_error
         self.base_url = credentials.base_url.rstrip("/")
         self.api_url = f"{self.base_url}{API_PATH}"
         self._token: str | None = None
@@ -113,6 +117,8 @@ class UnitrendsClient:
         return self._http or _get_shared_http_client(self._credentials.verify_tls)
 
     async def _login(self) -> str:
+        if self.header_error:  # never send credentials to an unchecked base URL
+            raise UnitrendsError(400, self.header_error)
         creds = self._credentials
         try:
             resp = await self._client().post(
@@ -160,6 +166,8 @@ class UnitrendsClient:
 
     async def request(self, method: str, path: str, params: dict[str, Any] | None = None, body: Any = None) -> Any:
         """Call ``{base}/api/{path}``; on 401 logs in again once and retries."""
+        if self.header_error:
+            raise UnitrendsError(400, self.header_error)
         resp = await self._send(method, path, params, body, await self._auth_token())
         if resp.status_code == 401:
             resp = await self._send(method, path, params, body, await self._auth_token(renew=True))
