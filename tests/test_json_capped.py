@@ -78,3 +78,16 @@ def test_record_with_a_small_list_and_a_huge_field_is_shortened():
     record = {"id": 8, "body": "y" * 50_000, "conversations": [{"id": i, "text": "z" * 100} for i in range(3)]}
     out = json.loads(dump_json_capped(record))
     assert out["id"] == 8 and len(out["conversations"]) == 3 and out["fields_truncated"] is True
+
+
+
+def test_one_record_too_large_on_its_own_is_returned_alone_and_continues():
+    # A record whose nested objects alone exceed the cap: returned by itself, trimmed, and the
+    # continuation points at the next record instead of the whole result being dropped.
+    huge = {"id": "big", "configuration": {f"k{i}": {f"n{j}": "v" * 30 for j in range(30)} for i in range(400)}}
+    data = {"items": [huge, {"id": "next"}], "count": 2, "has_more": True, "next_offset": 7,
+            "_resume": {"key": "next_offset", "start": 5}}
+    out = json.loads(dump_json_capped(data))
+    assert [r["id"] for r in out["items"]] == ["big"] and out["fields_truncated"] is True
+    assert out["next_offset"] == 6 and out["count"] == 1
+    assert "more keys" in json.dumps(out["items"][0]) and len(json.dumps(out)) <= MAX_CHARS

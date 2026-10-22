@@ -113,6 +113,16 @@ def dump_json_capped(data: Any, max_chars: int = MAX_CHARS) -> str:
                 result = compact(build(lo))
                 if len(result) <= max_chars:
                     return result
+            # Step 2b: not even one record fits (e.g. a record with very large nested objects).
+            # Return it alone with its nested objects cut to their first keys, so the next-page
+            # field still continues with the next record instead of the result being dropped.
+            if lo == 0 and items:
+                first = shortened[0]
+                for key_limit in _KEY_STEPS:
+                    shortened = [_trim_keys(first, key_limit)] + list(shortened[1:])
+                    result = compact(build(1) | {"fields_truncated": True})
+                    if len(result) <= max_chars:
+                        return result
 
     # Step 3: a single record (or what is left around a list) is still too large, e.g. one
     # ticket with a long description. Shorten its long values rather than return nothing.
@@ -165,3 +175,19 @@ def _shrink(value: Any, text_limit: int, list_limit: int) -> Any:
 
 def error_envelope(code: str, message: str, retryable: bool) -> str:
     return compact({"error": {"code": code, "message": message, "retryable": retryable}})
+
+
+# Keys kept per nested object when one record alone is too large, mildest first.
+_KEY_STEPS = (50, 20, 10, 5, 2)
+
+
+def _trim_keys(value: Any, key_limit: int) -> Any:
+    if isinstance(value, dict):
+        pairs = list(value.items())
+        kept = {k: _trim_keys(v, key_limit) for k, v in pairs[:key_limit]}
+        if len(pairs) > key_limit:
+            kept["..."] = f"[{len(pairs) - key_limit} more keys]"
+        return kept
+    if isinstance(value, list):
+        return [_trim_keys(v, key_limit) for v in value]
+    return value
